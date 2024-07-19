@@ -93,6 +93,7 @@ void line_append(Line *line, char c)
     line->data[line->count++] = c;
 }
 
+
 void line_insert(Line *line, size_t pos, char c)
 {
     if (pos > line->count) {
@@ -149,6 +150,37 @@ void lines_append(Lines *lines, Line *line)
     }
 
     lines->data[lines->count++] = *line;
+}
+
+void lines_remove(Lines *lines, size_t pos) 
+{
+    if (pos >= lines->count) {
+        fprintf(stderr, "ERROR: Remove '%zu' out of bounds", pos);
+        exit(1);
+    }
+
+    memmove(lines->data + pos, lines->data + pos + 1, lines->count -pos - 1);
+    lines->count--;
+}
+
+void lines_combine(Lines *lines, size_t pos_a, size_t pos_b)
+{
+    Line *a = &lines->data[pos_a];
+    Line *b = &lines->data[pos_b];
+
+    size_t count = a->count + b->count;
+    if (count > a->capacity) {
+        a->capacity = count;
+        a->data = realloc(a->data, sizeof(Line) * a->capacity);
+        if (!a->data) {
+            fprintf(stderr, "ERROR: Not enough memory...\n");
+            exit(1);
+        }
+    }
+
+    memcpy(a->data + a->count, b->data, b->count);
+    a->count += b->count;
+    lines_remove(lines, pos_b);
 }
 
 void lines_free(Lines *lines) 
@@ -269,10 +301,19 @@ int main(void)
                     break;
                 case BSPACE:
                     if (e.cy < e.lines.count) {
-                        Line *line = &e.lines.data[e.cy];
-                        if (e.cx <= line->count) {
-                            e.cx--;
-                            line_remove(line, e.cx);
+                        if (e.cx == 0) {
+                            if (e.cy == 0)
+                                continue;
+                            size_t eola = e.lines.data[e.cy-1].count;
+                            lines_combine(&e.lines, e.cy-1, e.cy);
+                            e.cy--;
+                            e.cx = eola;
+                        } else {
+                            Line *line = &e.lines.data[e.cy];
+                            if (e.cx <= line->count) {
+                                e.cx--;
+                                line_remove(line, e.cx);
+                            }
                         }
                     }
                     break;
