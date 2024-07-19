@@ -1,6 +1,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/ioctl.h>
 #include <termios.h>
 #include <unistd.h>
@@ -12,7 +13,7 @@ struct termios org_term;
 // man(4) console_codes
 #define CLEAR()             printf("\033[2J")
 #define CURSOR_RESET()      printf("\033[H")
-#define CURSOR_MOVE_TO(x,y) printf("\033[%zu;%zuH", (y), (x))
+#define CURSOR_MOVE_TO(x,y) printf("\033[%zu;%zuH", (y)+1, (x)+1)
 
 #define ESCAPE 27
 #define BSPACE 127
@@ -136,8 +137,8 @@ void editor_compute_size(Editor *e)
 
 void render(FILE *out, Editor *e, char last) 
 {
-    CURSOR_MOVE_TO((size_t) 0, (size_t) 0);
     CLEAR();
+    CURSOR_RESET();
     
     for (size_t i = 0; i < e->lines.count; ++i) {
         fprintf(out, "\033[33m%2zu\033[0m ", i);
@@ -163,13 +164,25 @@ int main(void)
     Editor e = {0};
     editor_compute_size(&e);
 
-    Line line = {0};
+    Line title = {0};
+    line_init(&title);
 
-    line_init(&line);
-    line_insert(&line, 'g');
+    Line msg = {0};
+    line_init(&msg);
+
+    char *title_content = "    Welcome to cea v0.1!";
+    char *msg_content =   "    Begin navigating with 'hjkl'";
+
+    for (size_t i = 0; i < strlen(title_content); ++i) {
+        line_insert(&title, title_content[i]);
+    }
+    for (size_t i = 0; i < strlen(msg_content); ++i) {
+        line_insert(&msg, msg_content[i]);
+    }
 
     lines_init(&e.lines);
-    lines_insert(&e.lines, &line);
+    lines_insert(&e.lines, &title);
+    lines_insert(&e.lines, &msg);
 
     CLEAR();
 
@@ -215,8 +228,9 @@ int main(void)
                     /* e.lines[e.cy][e.cx-3] = 0; */
                     break;
                 default:
-                    line_insert(&e.lines.data[0], c);
-                    e.cx++;
+                    if (e.cy < e.lines.count)
+                        line_insert(&e.lines.data[e.cy], c);
+                        e.cx++;
                     break;
             }
         }
