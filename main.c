@@ -80,7 +80,7 @@ void line_init(Line *line) {
     line->data = NULL;
 }
 
-void line_insert(Line *line, char c) 
+void line_append(Line *line, char c)
 {
     if (line->capacity < line->count + 1) {
         line->capacity = line->capacity == 0 ? INIT_CAP : line->capacity * 2;
@@ -94,6 +94,32 @@ void line_insert(Line *line, char c)
     line->data[line->count++] = c;
 }
 
+void line_insert(Line *line, size_t pos, char c)
+{
+    if (pos > line->count) {
+        fprintf(stderr, "ERROR: Insert out of bounds.\n");
+        exit(1);
+    }
+
+    if (line->capacity < line->count + 1) {
+        line->capacity = line->capacity == 0 ? INIT_CAP : line->capacity * 2;
+        line->data = realloc(line->data, sizeof(char) * line->capacity);
+        if (!line->data) {
+            fprintf(stderr, "ERROR: Not enough memory...\n");
+            exit(1);
+        }
+    }
+
+    if (pos == line->count) {
+        line->data[line->count++] = c;
+    } else {
+        memmove(line->data + pos + 1, line->data + pos, line->count -pos - 1);
+        line->data[pos] = c;
+        line->count++;
+    }
+
+}
+
 void lines_init(Lines *lines) 
 {
     lines->count = 0;
@@ -101,7 +127,7 @@ void lines_init(Lines *lines)
     lines->data = NULL;
 }
 
-void lines_insert(Lines *lines, Line *line) 
+void lines_append(Lines *lines, Line *line)
 {
     if (lines->capacity < lines->count + 1) {
         lines->capacity = lines->capacity == 0 ? INIT_CAP: lines->capacity * 2;
@@ -141,7 +167,8 @@ void render(FILE *out, Editor *e, char last)
     CURSOR_RESET();
     
     for (size_t i = 0; i < e->lines.count; ++i) {
-        fprintf(out, "\033[33m%2zu\033[0m ", i);
+        // Line numbers
+        /* fprintf(out, "\033[33m%2zu\033[0m ", i); */
 
         Line *line = &e->lines.data[i];
         fprintf(out, "%.*s\n", (int) line->count, line->data);
@@ -174,15 +201,15 @@ int main(void)
     char *msg_content =   "    Begin navigating with 'hjkl'";
 
     for (size_t i = 0; i < strlen(title_content); ++i) {
-        line_insert(&title, title_content[i]);
+        line_append(&title, title_content[i]);
     }
     for (size_t i = 0; i < strlen(msg_content); ++i) {
-        line_insert(&msg, msg_content[i]);
+        line_append(&msg, msg_content[i]);
     }
 
     lines_init(&e.lines);
-    lines_insert(&e.lines, &title);
-    lines_insert(&e.lines, &msg);
+    lines_append(&e.lines, &title);
+    lines_append(&e.lines, &msg);
 
     CLEAR();
 
@@ -228,9 +255,13 @@ int main(void)
                     /* e.lines[e.cy][e.cx-3] = 0; */
                     break;
                 default:
-                    if (e.cy < e.lines.count)
-                        line_insert(&e.lines.data[e.cy], c);
-                        e.cx++;
+                    if (e.cy < e.lines.count) {
+                        Line *line = &e.lines.data[e.cy];
+                        if (e.cx < line->count) {
+                            line_insert(line, e.cx, c);
+                            e.cx++;
+                        }
+                    }
                     break;
             }
         }
