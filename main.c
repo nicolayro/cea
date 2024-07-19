@@ -7,8 +7,8 @@
 
 struct termios org_term;
 
-#define WIDTH 100
-#define HEIGHT 32
+#define INIT_CAP 8
+
 // man(4) console_codes
 #define CLEAR()             printf("\033[2J")
 #define CURSOR_RESET()      printf("\033[H")
@@ -54,14 +54,73 @@ char *mode_to_str(Mode m) {
     }
 }
 
-typedef char Line[WIDTH];
+typedef struct {
+    char *data;
+    size_t count;
+    size_t capacity;
+} Line;
+
+typedef struct {
+    Line *data;
+    size_t count;
+    size_t capacity;
+} Lines;
 
 typedef struct {
     size_t cx, cy;
     size_t width, height;
     Mode mode;
-    Line lines[HEIGHT];
+    Lines lines;
 } Editor;
+
+void line_init(Line *line) {
+    line->count = 0;
+    line->capacity = 0;
+    line->data = NULL;
+}
+
+void line_insert(Line *line, char c) 
+{
+    if (line->capacity < line->count + 1) {
+        line->capacity = line->capacity == 0 ? INIT_CAP : line->capacity * 2;
+        line->data = realloc(line->data, sizeof(char) * line->capacity);
+        if (!line->data) {
+            fprintf(stderr, "ERROR: Not enough memory...\n");
+            exit(1);
+        }
+    }
+
+    line->data[line->count++] = c;
+}
+
+void lines_init(Lines *lines) 
+{
+    lines->count = 0;
+    lines->capacity = 0;
+    lines->data = NULL;
+}
+
+void lines_insert(Lines *lines, Line *line) 
+{
+    if (lines->capacity < lines->count + 1) {
+        lines->capacity = lines->capacity == 0 ? INIT_CAP: lines->capacity * 2;
+        lines->data = realloc(lines->data, sizeof(Line) * lines->capacity);
+        if (!lines->data) {
+            fprintf(stderr, "ERROR: Not enough memory...\n");
+            exit(1);
+        }
+    }
+
+    lines->data[lines->count++] = *line;
+}
+
+void lines_free(Lines *lines) 
+{
+    for (size_t i = 0; i < lines->count; ++i) {
+        free(lines->data[i].data);
+    }
+    free(lines->data);
+}
 
 void editor_compute_size(Editor *e)
 {
@@ -77,14 +136,14 @@ void editor_compute_size(Editor *e)
 
 void render(FILE *out, Editor *e, char last) 
 {
-    CURSOR_MOVE_TO((size_t) 1, (size_t) 1);
+    CURSOR_MOVE_TO((size_t) 0, (size_t) 0);
+    CLEAR();
     
-    for (int i = 1; i < HEIGHT; ++i) {
-        fprintf(out, "\033[33m%2d\033[0m ", i);
-        for (int j = 1; j < WIDTH; ++j) {
-            fprintf(out, "%c", e->lines[i][j] ? e->lines[i][j] : ' ');
-        }
-        fprintf(out, "\n");
+    for (size_t i = 0; i < e->lines.count; ++i) {
+        fprintf(out, "\033[33m%2zu\033[0m ", i);
+
+        Line *line = &e->lines.data[i];
+        fprintf(out, "%.*s\n", (int) line->count, line->data);
     }
 
     // status bar
@@ -103,6 +162,16 @@ int main(void)
 
     Editor e = {0};
     editor_compute_size(&e);
+
+    Line line = {0};
+
+    line_init(&line);
+    line_insert(&line, 'g');
+
+    lines_init(&e.lines);
+    lines_insert(&e.lines, &line);
+
+    CLEAR();
 
     terminal_enable_raw_mode();
     render(stdout, &e, ' ');
@@ -130,9 +199,6 @@ int main(void)
                 case 'i':
                     e.mode = INSERT;
                     break;
-                case 'x':
-                    e.lines[e.cy][e.cx-3] = 0;
-                    break;
                 case ESCAPE:
                     e.mode = NORMAL;
                     break;
@@ -146,10 +212,10 @@ int main(void)
                     break;
                 case BSPACE:
                     e.cx--;
-                    e.lines[e.cy][e.cx-3] = 0;
+                    /* e.lines[e.cy][e.cx-3] = 0; */
                     break;
                 default:
-                    e.lines[e.cy][e.cx-3] = c;
+                    line_insert(&e.lines.data[0], c);
                     e.cx++;
                     break;
             }
