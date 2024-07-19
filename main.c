@@ -1,4 +1,3 @@
-#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -97,7 +96,7 @@ void line_append(Line *line, char c)
 void line_insert(Line *line, size_t pos, char c)
 {
     if (pos > line->count) {
-        fprintf(stderr, "ERROR: Insert out of bounds.\n");
+        fprintf(stderr, "ERROR: Insert '%zu' out of bounds.\n", pos);
         exit(1);
     }
 
@@ -118,6 +117,17 @@ void line_insert(Line *line, size_t pos, char c)
         line->count++;
     }
 
+}
+
+void line_remove(Line *line, size_t pos)
+{
+    if (pos >= line->count) {
+        fprintf(stderr, "ERROR: Remove '%zu' out of bounds", pos);
+        exit(1);
+    }
+
+    memmove(line->data + pos, line->data + pos + 1, line->count -pos - 1);
+    line->count--;
 }
 
 void lines_init(Lines *lines) 
@@ -239,6 +249,13 @@ int main(void)
                 case 'i':
                     e.mode = INSERT;
                     break;
+                case 'x':
+                    if (e.cy < e.lines.count) {
+                        Line *line = &e.lines.data[e.cy];
+                        if (e.cx < line->count) {
+                            line_remove(line, e.cx);
+                        }
+                    }
                 case ESCAPE:
                     e.mode = NORMAL;
                     break;
@@ -251,13 +268,18 @@ int main(void)
                     e.mode = NORMAL;
                     break;
                 case BSPACE:
-                    e.cx--;
-                    /* e.lines[e.cy][e.cx-3] = 0; */
+                    if (e.cy < e.lines.count) {
+                        Line *line = &e.lines.data[e.cy];
+                        if (e.cx <= line->count) {
+                            e.cx--;
+                            line_remove(line, e.cx);
+                        }
+                    }
                     break;
                 default:
                     if (e.cy < e.lines.count) {
                         Line *line = &e.lines.data[e.cy];
-                        if (e.cx < line->count) {
+                        if (e.cx <= line->count) {
                             line_insert(line, e.cx, c);
                             e.cx++;
                         }
