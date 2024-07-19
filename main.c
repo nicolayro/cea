@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/ioctl.h>
@@ -10,6 +11,8 @@ struct termios org_term;
 #define CLEAR()             printf("\033[2J")
 #define CURSOR_RESET()      printf("\033[H")
 #define CURSOR_MOVE_TO(x,y) printf("\033[%zu;%zuH", (y), (x))
+
+#define ESCAPE 27
 
 void terminal_disable_raw_mode(void) 
 {
@@ -36,9 +39,22 @@ void terminal_enable_raw_mode(void)
     }
 }
 
+typedef enum {
+    NORMAL,
+    INSERT,
+} Mode;
+
+char *mode_to_str(Mode m) {
+    switch (m) {
+        case NORMAL: return "NORMAL";
+        case INSERT: return "INSERT";
+    }
+}
+
 typedef struct {
     size_t cx, cy;
     size_t width, height;
+    Mode mode;
 } Editor;
 
 void editor_compute_size(Editor *e)
@@ -58,9 +74,10 @@ void render(FILE *out, Editor *e)
     CLEAR();
 
     // Render status bar
+    char *mode_str = mode_to_str(e->mode);
     CURSOR_MOVE_TO((size_t) 0, (size_t) e->height);
     fprintf(out, "\033[37;44m");
-    fprintf(out, " | INSERT | %zu, %zu | ", e->cx, e->cy);
+    fprintf(out, " | %s | %zu, %zu | ", mode_str, e->cx, e->cy);
     fprintf(out, "\033[0m");
 
     CURSOR_MOVE_TO(e->cx, e->cy);
@@ -94,6 +111,12 @@ int main(void)
             case 'l':
                 if (e.cx < e.width)
                     e.cx++;
+                break;
+            case 'i':
+                e.mode = INSERT;
+                break;
+            case ESCAPE:
+                e.mode = NORMAL;
                 break;
             default:
                 break;
