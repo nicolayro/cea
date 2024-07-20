@@ -202,6 +202,7 @@ void lines_insert(Lines *lines, size_t pos, Line *line)
         if (!lines->data) {
             fprintf(stderr, "ERROR: Not enough memory...\n");
             exit(1);
+        }
     }
 
     if (pos == lines->count) {
