@@ -14,7 +14,7 @@ struct termios org_term;
 #define STATUS_SZ 4
 
 #define BG_COLOR     "49;5;245"
-#define PAD_COLOR    "40;5;235"
+#define PAD_COLOR    "90;5;235"
 #define STATUS_COLOR "42"
 
 // man(4) console_codes
@@ -44,7 +44,7 @@ void terminal_enable_raw_mode(void)
     atexit(terminal_disable_raw_mode);
 
     struct termios term = org_term;
-    term.c_lflag &= ~(ECHO | ICANON);
+    term.c_lflag &= ~(ECHO | ICANON | ISIG);
 
     if ((tcsetattr(STDIN_FILENO, TCSAFLUSH, &term)) == -1) {
         fprintf(stderr, "ERROR: Unable to set terminal to raw mode.\n");
@@ -370,7 +370,32 @@ int main(void)
                         e.cx++;
                     break;
                 case 'i':
-                    e.mode = INSERT;
+                    if (e.cy < e.lines.count && e.cx <= e.lines.data[e.cy].count)
+                        e.mode = INSERT;
+                    break;
+                case 'a':
+                    if (e.cy < e.lines.count && e.cx < e.lines.data[e.cy].count) {
+                        e.mode = INSERT;
+                        e.cx++;
+                    }
+                    break;
+                case 'A':
+                    if (e.cy < e.lines.count) {
+                        Line *line = &e.lines.data[e.cy];
+                        if (e.cx < line->count) {
+                            e.mode = INSERT;
+                            e.cx = line->count;
+                        }
+                    }
+                    break;
+                case 'o':
+                    if (e.cy < e.lines.count) {
+                        Line line = {0};
+                        lines_insert(&e.lines, e.cy, &line);
+                        e.cx = 0;
+                        e.cy++;
+                        e.mode = INSERT;
+                    }
                     break;
                 case 'x':
                     if (e.cy < e.lines.count) {
@@ -422,11 +447,13 @@ int main(void)
                     }
                     break;
                 default:
-                    if (e.cy < e.lines.count) {
-                        Line *line = &e.lines.data[e.cy];
-                        if (e.cx <= line->count) {
-                            line_insert(line, e.cx, c);
-                            e.cx++;
+                    if (c >= 32 && c <= 127) {
+                        if (e.cy < e.lines.count) {
+                            Line *line = &e.lines.data[e.cy];
+                            if (e.cx <= line->count) {
+                                line_insert(line, e.cx, c);
+                                e.cx++;
+                            }
                         }
                     }
                     break;
