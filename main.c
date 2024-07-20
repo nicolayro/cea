@@ -1,3 +1,4 @@
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -9,15 +10,24 @@ struct termios org_term;
 
 #define INIT_CAP 8
 
+#define SIDE_SIZE 4
+#define STATUS_SZ 4
+
+#define BG_COLOR     "49;5;245"
+#define PAD_COLOR    "40;5;235"
+#define STATUS_COLOR "42"
+
 // man(4) console_codes
 #define CLEAR()             printf("\033[2J")
 #define CURSOR_RESET()      printf("\033[H")
 #define CURSOR_MOVE_TO(x,y) printf("\033[%zu;%zuH", (y)+1, (x)+1)
 
+// ASCII COdes
+#define ENTER 10
 #define ESCAPE 27
 #define BSPACE 127
 
-void terminal_disable_raw_mode(void) 
+void terminal_disable_raw_mode(void)
 {
     if ((tcsetattr(STDIN_FILENO, TCSAFLUSH, &org_term)) == -1) {
         fprintf(stderr, "ERROR: Unable to reset terminal.\n");
@@ -25,14 +35,14 @@ void terminal_disable_raw_mode(void)
     }
 }
 
-void terminal_enable_raw_mode(void) 
+void terminal_enable_raw_mode(void)
 {
     if ((tcgetattr(STDIN_FILENO, &org_term)) == -1) {
         fprintf(stderr, "ERROR: Unable to get terminal.\n");
         exit(1);
     }
     atexit(terminal_disable_raw_mode);
-    
+
     struct termios term = org_term;
     term.c_lflag &= ~(ECHO | ICANON);
 
@@ -93,7 +103,6 @@ void line_append(Line *line, char c)
     line->data[line->count++] = c;
 }
 
-
 void line_insert(Line *line, size_t pos, char c)
 {
     if (pos > line->count) {
@@ -113,11 +122,10 @@ void line_insert(Line *line, size_t pos, char c)
     if (pos == line->count) {
         line->data[line->count++] = c;
     } else {
-        memmove(line->data + pos + 1, line->data + pos, line->count -pos - 1);
+        memmove(line->data + pos + 1, line->data + pos, line->count - pos - 1);
         line->data[pos] = c;
         line->count++;
     }
-
 }
 
 void line_remove(Line *line, size_t pos)
@@ -131,7 +139,36 @@ void line_remove(Line *line, size_t pos)
     line->count--;
 }
 
-void lines_init(Lines *lines) 
+Line line_split_at(Line *line, size_t pos)
+{
+    if (pos > line->count) {
+        fprintf(stderr, "ERROR: Split line at '%zu' out of bounds '%zu'.\n", pos, line->count);
+        exit(1);
+    }
+
+    size_t len = line->count - pos;
+    Line new_line = {
+        .count = len,
+        .capacity = len,
+        .data = malloc(sizeof(char) * len),
+    };
+    if (!new_line.data) {
+        fprintf(stderr, "ERROR: Not enough memory...\n");
+        exit(1);
+    }
+
+    memmove(new_line.data, line->data + pos, len);
+    line->count = pos;
+
+    return new_line;
+}
+
+void line_free(Line *line)
+{
+    free(line->data);
+}
+
+void lines_init(Lines *lines)
 {
     lines->count = 0;
     lines->capacity = 0;
@@ -152,19 +189,49 @@ void lines_append(Lines *lines, Line *line)
     lines->data[lines->count++] = *line;
 }
 
-void lines_remove(Lines *lines, size_t pos) 
+void lines_insert(Lines *lines, size_t pos, Line *line)
 {
-    if (pos >= lines->count) {
-        fprintf(stderr, "ERROR: Remove '%zu' out of bounds", pos);
+    if (pos > lines->count) {
+        fprintf(stderr, "ERROR: Insert '%zu' out of bounds.\n", pos);
         exit(1);
     }
 
-    memmove(lines->data + pos, lines->data + pos + 1, lines->count -pos - 1);
+    if (lines->capacity < lines->count + 1) {
+        lines->capacity = lines->capacity == 0 ? INIT_CAP : lines->capacity * 2;
+        lines->data = realloc(lines->data, sizeof(Line) * lines->capacity);
+        if (!lines->data) {
+            fprintf(stderr, "ERROR: Not enough memory...\n");
+            exit(1);
+    }
+
+    if (pos == lines->count) {
+        lines->data[lines->count++] = *line;
+    } else {
+        memmove(lines->data + pos + 1, lines->data + pos, sizeof(Line) * (lines->count - pos));
+        lines->data[pos+1] = *line;
+        lines->count++;
+    }
+}
+
+void lines_remove(Lines *lines, size_t pos)
+{
+    if (pos >= lines->count) {
+        fprintf(stderr, "ERROR: Remove '%zu' out of bounds '%zu'.\n", pos, lines->count);
+        exit(1);
+    }
+
+    Line *line = &lines->data[pos];
+    memmove(line, line + 1, lines->count - pos - 1);
+    line_free(line);
     lines->count--;
 }
 
 void lines_combine(Lines *lines, size_t pos_a, size_t pos_b)
 {
+    if (pos_a >= lines->count || pos_b >= lines->count) {
+        fprintf(stderr, "ERROR: Combine ('%zu', '%zu') out of bounds", pos_a, pos_b);
+        exit(1);
+    }
     Line *a = &lines->data[pos_a];
     Line *b = &lines->data[pos_b];
 
@@ -183,7 +250,7 @@ void lines_combine(Lines *lines, size_t pos_a, size_t pos_b)
     lines_remove(lines, pos_b);
 }
 
-void lines_free(Lines *lines) 
+void lines_free(Lines *lines)
 {
     for (size_t i = 0; i < lines->count; ++i) {
         free(lines->data[i].data);
@@ -203,27 +270,48 @@ void editor_compute_size(Editor *e)
     e->height = w.ws_row;
 }
 
-void render(FILE *out, Editor *e, char last) 
+void render(FILE *out, Editor *e, char last)
 {
-    CLEAR();
     CURSOR_RESET();
-    
+
     for (size_t i = 0; i < e->lines.count; ++i) {
         // Line numbers
-        /* fprintf(out, "\033[33m%2zu\033[0m ", i); */
+        if (i == e->cy) {
+            fprintf(out, "\033[1m");
+        }
+        fprintf(out, "\033[33m%3zu\033[0m", i);
+        CURSOR_MOVE_TO((size_t) SIDE_SIZE, (size_t) i);
 
+        fprintf(out, "\033["BG_COLOR"m");
         Line *line = &e->lines.data[i];
-        fprintf(out, "%.*s\n", (int) line->count, line->data);
+        fprintf(out, "%.*s", (int) line->count, line->data);
+
+        for (size_t j = 0; j < e->width - line->count - SIDE_SIZE; ++j)
+            putchar(' ');
+        fprintf(out, "\033[0m");
     }
+
+    fprintf(out, "\033["PAD_COLOR"m");
+    for (size_t i = e->lines.count; i < e->height - STATUS_SZ; ++i) {
+        fprintf(out, "\033[33;49m  ~ ");
+        fprintf(out, "\033["PAD_COLOR"m");
+        for (size_t j = SIDE_SIZE; j < e->width; ++j)
+            putchar(' ');
+    };
+    fprintf(out, "\033[0m");
 
     // status bar
     char *mode_str = mode_to_str(e->mode);
     CURSOR_MOVE_TO((size_t) 0, (size_t) e->height);
-    fprintf(out, "\033[37;44m");
-    fprintf(out, " | %s | %zu, %zu | %c (%d) |", mode_str, e->cx, e->cy, last, last);
+    fprintf(out, "\033[30;"STATUS_COLOR"m");
+    for (size_t i = 0; i < e->width; ++i)
+        putchar(' ');
+    CURSOR_MOVE_TO((size_t) 0, (size_t) e->height);
+    fprintf(out, " | %s | %zu, %zu | (%d) | ", mode_str, e->cx, e->cy, last);
     fprintf(out, "\033[0m");
 
-    CURSOR_MOVE_TO(e->cx, e->cy);
+
+    CURSOR_MOVE_TO(e->cx + STATUS_SZ, e->cy);
     fflush(out);
 }
 
@@ -239,8 +327,10 @@ int main(void)
     Line msg = {0};
     line_init(&msg);
 
-    char *title_content = "    Welcome to cea v0.1!";
-    char *msg_content =   "    Begin navigating with 'hjkl'";
+    char *title_content = "// Welcome to cea v0.1!";
+    char *msg_content =   "// Begin navigating with 'hjkl'";
+    /* char *title_content = "123456789"; */
+    /* char *msg_content =   "HELLOBYE"; */
 
     for (size_t i = 0; i < strlen(title_content); ++i) {
         line_append(&title, title_content[i]);
@@ -299,15 +389,28 @@ int main(void)
                 case ESCAPE:
                     e.mode = NORMAL;
                     break;
+                case ENTER:
+                    if (e.cy < e.lines.count) {
+                        Line *line = &e.lines.data[e.cy];
+                        if (e.cx >= 0 && e.cy <= e.lines.count) {
+                            Line new_line = line->count != 0
+                                ? line_split_at(line, e.cx)
+                                : (Line) {0};
+                            lines_insert(&e.lines, e.cy, &new_line);
+                            e.cy++;
+                            e.cx = 0;
+                        }
+                    }
+                    break;
                 case BSPACE:
                     if (e.cy < e.lines.count) {
                         if (e.cx == 0) {
-                            if (e.cy == 0)
+                            if (e.cy < 1)
                                 continue;
-                            size_t eola = e.lines.data[e.cy-1].count;
+                            size_t line_end = e.lines.data[e.cy-1].count;
                             lines_combine(&e.lines, e.cy-1, e.cy);
                             e.cy--;
-                            e.cx = eola;
+                            e.cx = line_end;
                         } else {
                             Line *line = &e.lines.data[e.cy];
                             if (e.cx <= line->count) {
