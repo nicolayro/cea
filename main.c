@@ -365,35 +365,19 @@ void editor_read_from_file(Editor *e, const char* filename)
     fclose(file);
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
+    if (argc != 2) {
+        fprintf(stderr, "Invalid number of arguments provided.\n");
+        fprintf(stdout, "\nUSAGE: cea <filename>\n");
+        exit(1);
+    }
+
+    char *filename = argv[1];
 
     Editor e = {0};
+    editor_read_from_file(&e, filename);
     editor_compute_size(&e);
-
-    /* Line title = {0}; */
-    /* line_init(&title); */
-
-    /* Line msg = {0}; */
-    /* line_init(&msg); */
-
-    /* char *title_content = "// Welcome to cea v0.1!"; */
-    /* char *msg_content =   "// Begin navigating with 'hjkl'"; */
-    /* /1* char *title_content = "123456789"; *1/ */
-    /* /1* char *msg_content =   "HELLOBYE"; *1/ */
-
-    /* for (size_t i = 0; i < strlen(title_content); ++i) { */
-    /*     line_append(&title, title_content[i]); */
-    /* } */
-    /* for (size_t i = 0; i < strlen(msg_content); ++i) { */
-    /*     line_append(&msg, msg_content[i]); */
-    /* } */
-
-    /* lines_init(&e.lines); */
-    /* lines_append(&e.lines, &title); */
-    /* lines_append(&e.lines, &msg); */
-
-    editor_read_from_file(&e, "./main.c");
 
     CLEAR();
 

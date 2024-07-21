@@ -7,4 +7,4 @@ build: $(FILES)
 	$(CC) $(FLAGS) -o $(PROGRAM) $(FILES)
 
 run: build
-	./$(PROGRAM)
+	./$(PROGRAM) main.c
