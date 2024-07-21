@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
+#include <sys/stat.h>
 #include <termios.h>
 #include <unistd.h>
 
@@ -10,7 +11,7 @@ struct termios org_term;
 
 #define INIT_CAP 8
 
-#define SIDE_SIZE 4
+#define SIDEBAR_SZ 4
 #define STATUS_SZ 4
 
 #define BG_COLOR     "49;5;245"
@@ -275,28 +276,29 @@ void render(FILE *out, Editor *e, char last)
 {
     CURSOR_RESET();
 
-    for (size_t i = 0; i < e->lines.count; ++i) {
+    size_t i;
+    for (i = 0; i < e->lines.count && i < e->height; ++i) {
         // Line numbers
         if (i == e->cy) {
             fprintf(out, "\033[1m");
         }
-        fprintf(out, "\033[33m%3zu\033[0m", i);
-        CURSOR_MOVE_TO((size_t) SIDE_SIZE, (size_t) i);
+        fprintf(out, "\033[33m%3zu \033[0m", i);
+        /* CURSOR_MOVE_TO((size_t) SIDEBAR_SZ, (size_t) i); */
 
         fprintf(out, "\033["BG_COLOR"m");
         Line *line = &e->lines.data[i];
         fprintf(out, "%.*s", (int) line->count, line->data);
 
-        for (size_t j = 0; j < e->width - line->count - SIDE_SIZE; ++j)
+        for (size_t j = 0; j < e->width - line->count - SIDEBAR_SZ; ++j)
             putchar(' ');
         fprintf(out, "\033[0m");
     }
 
     fprintf(out, "\033["PAD_COLOR"m");
-    for (size_t i = e->lines.count; i < e->height - STATUS_SZ; ++i) {
+    for (; i < e->height - STATUS_SZ; ++i) {
         fprintf(out, "\033[33;49m  ~ ");
         fprintf(out, "\033["PAD_COLOR"m");
-        for (size_t j = SIDE_SIZE; j < e->width; ++j)
+        for (size_t j = SIDEBAR_SZ; j < e->width; ++j)
             putchar(' ');
     };
     fprintf(out, "\033[0m");
@@ -308,12 +310,59 @@ void render(FILE *out, Editor *e, char last)
     for (size_t i = 0; i < e->width; ++i)
         putchar(' ');
     CURSOR_MOVE_TO((size_t) 0, (size_t) e->height);
-    fprintf(out, " | %s | %zu, %zu | (%d) | ", mode_str, e->cx, e->cy, last);
+    fprintf(out, " | %s | %zu, %zu | %zu, %zu | (%d) | ", mode_str, e->cx, e->cy, e->width, e->height, last);
     fprintf(out, "\033[0m");
 
 
     CURSOR_MOVE_TO(e->cx + STATUS_SZ, e->cy);
     fflush(out);
+}
+
+void editor_read_from_file(Editor *e, const char* filename) 
+{
+    struct stat statbuf;
+    if ((stat(filename, &statbuf)) < 0) {
+        fprintf(stderr, "ERROR: Unable to locate file '%s'.\n", filename);
+        exit(1);
+    }
+
+    size_t file_size = statbuf.st_size;
+
+    FILE *file = fopen(filename, "r");
+    if (!file) {
+        fprintf(stderr, "ERROR: Unable to open file '%s'.\n", filename);
+        exit(1);
+    }
+
+    char *contents = malloc(file_size);
+    if (!contents) {
+        fprintf(stderr, "ERROR: Unable to load file '%s' to memory.\n", filename);
+        exit(1);
+    }
+
+    size_t bytes_read = fread(contents, sizeof(char), file_size/sizeof(char), file);
+    if (bytes_read < file_size) {
+        fprintf(stderr, "ERROR: Only %zu bytes of %zu were read.\n", bytes_read, file_size);
+        exit(1);
+    }
+
+    Line l = {0};
+    line_init(&l);
+    char c;
+    for (size_t i = 0; i < file_size; ++i) {
+        c = contents[i];
+        if (c == '\n') {
+            lines_append(&e->lines, &l);
+
+            l = (Line) {0};
+            line_init(&l);
+        } else {
+            line_append(&l, c);
+        }
+    }
+
+    free(contents);
+    fclose(file);
 }
 
 int main(void)
@@ -322,35 +371,38 @@ int main(void)
     Editor e = {0};
     editor_compute_size(&e);
 
-    Line title = {0};
-    line_init(&title);
+    /* Line title = {0}; */
+    /* line_init(&title); */
 
-    Line msg = {0};
-    line_init(&msg);
+    /* Line msg = {0}; */
+    /* line_init(&msg); */
 
-    char *title_content = "// Welcome to cea v0.1!";
-    char *msg_content =   "// Begin navigating with 'hjkl'";
-    /* char *title_content = "123456789"; */
-    /* char *msg_content =   "HELLOBYE"; */
+    /* char *title_content = "// Welcome to cea v0.1!"; */
+    /* char *msg_content =   "// Begin navigating with 'hjkl'"; */
+    /* /1* char *title_content = "123456789"; *1/ */
+    /* /1* char *msg_content =   "HELLOBYE"; *1/ */
 
-    for (size_t i = 0; i < strlen(title_content); ++i) {
-        line_append(&title, title_content[i]);
-    }
-    for (size_t i = 0; i < strlen(msg_content); ++i) {
-        line_append(&msg, msg_content[i]);
-    }
+    /* for (size_t i = 0; i < strlen(title_content); ++i) { */
+    /*     line_append(&title, title_content[i]); */
+    /* } */
+    /* for (size_t i = 0; i < strlen(msg_content); ++i) { */
+    /*     line_append(&msg, msg_content[i]); */
+    /* } */
 
-    lines_init(&e.lines);
-    lines_append(&e.lines, &title);
-    lines_append(&e.lines, &msg);
+    /* lines_init(&e.lines); */
+    /* lines_append(&e.lines, &title); */
+    /* lines_append(&e.lines, &msg); */
+
+    editor_read_from_file(&e, "./main.c");
 
     CLEAR();
 
     terminal_enable_raw_mode();
     render(stdout, &e, ' ');
 
-    int c;
+    int c, count = 0;
     while (read(STDIN_FILENO, &c, 1) == 1 && c != 'q') {
+        count++;
         if (e.mode == NORMAL) {
             switch (c) {
                 case 'h':
@@ -370,7 +422,7 @@ int main(void)
                         e.cx++;
                     break;
                 case 'i':
-                    if (e.cy < e.lines.count && e.cx <= e.lines.data[e.cy].count)
+                    if (e.cy < e.lines.count && e.cx < e.lines.data[e.cy].count)
                         e.mode = INSERT;
                     break;
                 case 'a':
@@ -460,6 +512,9 @@ int main(void)
             }
         }
 
+        
+        CURSOR_MOVE_TO(e.width-8, e.height);
+        printf(" | %3d | ", count);
         render(stdout, &e, c);
     }
 
