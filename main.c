@@ -335,13 +335,16 @@ void render(FILE *out, Editor *e, Viewport *v, char last)
 
     size_t i = 0;
     size_t line_number = v->top;
-    printf("%3zu ", line_number);
+    fprintf(out, "\033[33m%3zu \033[0m", line_number);
     for (i = 0; i < v->count; ++i) {
+        fprintf(out, "\033["BG_COLOR"m");
         char c = v->content[i];
-        putchar(c);
+        fputc(c, out);
         if (c == '\n') {
             line_number++;
-            printf("%3zu ", line_number);
+            if (e->cy == line_number)
+                fprintf(out, "\033[1m"); // Bold current line
+            fprintf(out, "\033[33m%3zu \033[0m", line_number);
         }
     }
     /* for (; i < e->lines.count && i < e->height; ++i) { */
@@ -492,6 +495,7 @@ int main(int argc, char **argv)
                 case 'o':
                     if (e.cy < e.lines.count) {
                         Line line = {0};
+
                         lines_insert(&e.lines, e.cy, &line);
                         e.cx = 0;
                         e.cy++;
