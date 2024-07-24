@@ -12,7 +12,7 @@ struct termios org_term;
 #define INIT_CAP 8
 
 #define SIDEBAR_SZ 4
-#define STATUS_SZ 4
+#define STATUS_SZ 1
 
 #define BG_COLOR     "49;5;245"
 #define PAD_COLOR    "90;5;235"
@@ -78,11 +78,68 @@ typedef struct {
 } Lines;
 
 typedef struct {
+    size_t top, left;
+    size_t height, width;
+    size_t count; 
+    size_t capacity;
+    char *content;
+} Viewport;
+
+typedef struct {
     size_t cx, cy;
     size_t width, height;
     Mode mode;
     Lines lines;
 } Editor;
+
+void viewport_insert(Viewport *v, char c) {
+    if (v->capacity < v->count + 1) {
+        v->capacity = v->capacity == 0 ? INIT_CAP : v->capacity * 2;
+        v->content = realloc(v->content, sizeof(char) * v->capacity);
+        if (!v->content) {
+            fprintf(stderr, "ERROR: Not enough memory...\n");
+            exit(1);
+        }
+    }
+
+    v->content[v->count++] = c;
+}
+
+void viewport_write(Viewport *v, Lines *lines)
+{
+    v->count = 0;
+    for (size_t i = v->top; i < v->top + v->height; ++i) {
+        if (i < lines->count) {
+            Line *l = &lines->data[i];
+            for (size_t j = v->left; j < v->width; ++j) {
+                char c = j < l->count ? l->data[j] : ' ';
+                viewport_insert(v, c);
+            }
+            viewport_insert(v, '\n');
+        }
+    }
+}
+
+void viewport_update(Viewport *v, Editor *e)
+{
+    v->width = e->width - SIDEBAR_SZ;
+    v->height = e->height - STATUS_SZ;
+
+    if (e->cx < v->left) {
+        v->left = e->cx;
+    }
+    if (e->cx >= v->left + v->width - 1) {
+        v->left = e->cx - v->width + 1;
+    }
+    if (e->cy <= v->top) {
+        v->top = e->cy;
+    }
+    if (e->cy >= v->top + v->height - 1) {
+        v->top = e->cy - v->height + 1;
+    }
+
+    viewport_write(v, &e->lines);
+}
 
 void line_init(Line *line) {
     line->count = 0;
@@ -272,36 +329,46 @@ void editor_compute_size(Editor *e)
     e->height = w.ws_row;
 }
 
-void render(FILE *out, Editor *e, char last)
+void render(FILE *out, Editor *e, Viewport *v, char last)
 {
     CURSOR_RESET();
 
-    size_t i;
-    for (i = 0; i < e->lines.count && i < e->height; ++i) {
-        // Line numbers
-        if (i == e->cy) {
-            fprintf(out, "\033[1m");
+    size_t i = 0;
+    size_t line_number = v->top;
+    printf("%3zu ", line_number);
+    for (i = 0; i < v->count; ++i) {
+        char c = v->content[i];
+        putchar(c);
+        if (c == '\n') {
+            line_number++;
+            printf("%3zu ", line_number);
         }
-        fprintf(out, "\033[33m%3zu \033[0m", i);
-        /* CURSOR_MOVE_TO((size_t) SIDEBAR_SZ, (size_t) i); */
-
-        fprintf(out, "\033["BG_COLOR"m");
-        Line *line = &e->lines.data[i];
-        fprintf(out, "%.*s", (int) line->count, line->data);
-
-        for (size_t j = 0; j < e->width - line->count - SIDEBAR_SZ; ++j)
-            putchar(' ');
-        fprintf(out, "\033[0m");
     }
+    /* for (; i < e->lines.count && i < e->height; ++i) { */
+    /*     // Line numbers */
+    /*     if (i == e->cy) { */
+    /*         fprintf(out, "\033[1m"); */
+    /*     } */
+    /*     fprintf(out, "\033[33m%3zu \033[0m", i); */
+    /*     /1* CURSOR_MOVE_TO((size_t) SIDEBAR_SZ, (size_t) i); *1/ */
 
-    fprintf(out, "\033["PAD_COLOR"m");
-    for (; i < e->height - STATUS_SZ; ++i) {
-        fprintf(out, "\033[33;49m  ~ ");
-        fprintf(out, "\033["PAD_COLOR"m");
-        for (size_t j = SIDEBAR_SZ; j < e->width; ++j)
-            putchar(' ');
-    };
-    fprintf(out, "\033[0m");
+    /*     fprintf(out, "\033["BG_COLOR"m"); */
+    /*     Line *line = &e->lines.data[i]; */
+    /*     fprintf(out, "%.*s", (int) line->count, line->data); */
+
+    /*     for (size_t j = 0; j < e->width - line->count - SIDEBAR_SZ && j < e->width; ++j) */
+    /*         putchar(' '); */
+    /*     fprintf(out, "\033[0m"); */
+    /* } */
+
+    /* fprintf(out, "\033["PAD_COLOR"m"); */
+    /* for (; i < e->height - STATUS_SZ; ++i) { */
+    /*     fprintf(out, "\033[33;49m  ~ "); */
+    /*     fprintf(out, "\033["PAD_COLOR"m"); */
+    /*     for (size_t j = SIDEBAR_SZ; j < e->width; ++j) */
+    /*         putchar(' '); */
+    /* }; */
+    /* fprintf(out, "\033[0m"); */
 
     // status bar
     char *mode_str = mode_to_str(e->mode);
@@ -313,12 +380,11 @@ void render(FILE *out, Editor *e, char last)
     fprintf(out, " | %s | %zu, %zu | %zu, %zu | (%d) | ", mode_str, e->cx, e->cy, e->width, e->height, last);
     fprintf(out, "\033[0m");
 
-
-    CURSOR_MOVE_TO(e->cx + STATUS_SZ, e->cy);
+    CURSOR_MOVE_TO(e->cx + SIDEBAR_SZ, e->cy - v->top);
     fflush(out);
 }
 
-void editor_read_from_file(Editor *e, const char* filename) 
+void editor_read_from_file(Editor *e, const char* filename)
 {
     struct stat statbuf;
     if ((stat(filename, &statbuf)) < 0) {
@@ -346,15 +412,13 @@ void editor_read_from_file(Editor *e, const char* filename)
         exit(1);
     }
 
-    Line l = {0};
+    Line l;
     line_init(&l);
     char c;
     for (size_t i = 0; i < file_size; ++i) {
         c = contents[i];
         if (c == '\n') {
             lines_append(&e->lines, &l);
-
-            l = (Line) {0};
             line_init(&l);
         } else {
             line_append(&l, c);
@@ -376,17 +440,18 @@ int main(int argc, char **argv)
     char *filename = argv[1];
 
     Editor e = {0};
+    Viewport v = {0};
     editor_read_from_file(&e, filename);
     editor_compute_size(&e);
+    viewport_update(&v, &e);
 
     CLEAR();
 
     terminal_enable_raw_mode();
-    render(stdout, &e, ' ');
+    render(stdout, &e, &v, ' ');
 
-    int c, count = 0;
+    int c;
     while (read(STDIN_FILENO, &c, 1) == 1 && c != 'q') {
-        count++;
         if (e.mode == NORMAL) {
             switch (c) {
                 case 'h':
@@ -394,7 +459,7 @@ int main(int argc, char **argv)
                         e.cx--;
                     break;
                 case 'j':
-                    if (e.cy < e.height)
+                    if (e.cy < e.lines.count)
                         e.cy++;
                     break;
                 case 'k':
@@ -402,11 +467,11 @@ int main(int argc, char **argv)
                         e.cy--;
                     break;
                 case 'l':
-                    if (e.cx < e.width)
+                    if (e.cx < e.lines.data[e.cy].count - 1)
                         e.cx++;
                     break;
                 case 'i':
-                    if (e.cy < e.lines.count && e.cx < e.lines.data[e.cy].count)
+                    if (e.cy < e.lines.count && e.cx <= e.lines.data[e.cy].count)
                         e.mode = INSERT;
                     break;
                 case 'a':
@@ -440,9 +505,6 @@ int main(int argc, char **argv)
                             line_remove(line, e.cx);
                         }
                     }
-                case ESCAPE:
-                    e.mode = NORMAL;
-                    break;
                 default:
                     break;
             }
@@ -450,6 +512,9 @@ int main(int argc, char **argv)
             switch (c) {
                 case ESCAPE:
                     e.mode = NORMAL;
+                    if (e.cx > 0) {
+                        e.cx--;
+                    }
                     break;
                 case ENTER:
                     if (e.cy < e.lines.count) {
@@ -496,10 +561,8 @@ int main(int argc, char **argv)
             }
         }
 
-        
-        CURSOR_MOVE_TO(e.width-8, e.height);
-        printf(" | %3d | ", count);
-        render(stdout, &e, c);
+        viewport_update(&v, &e);
+        render(stdout, &e, &v, c);
     }
 
     terminal_disable_raw_mode();
