@@ -8,3 +8,7 @@ build: $(FILES)
 
 run: build
 	./$(PROGRAM) main.c
+
+test: build
+	$(CC) $(FLAGS) -o test test.c && ./test
+	

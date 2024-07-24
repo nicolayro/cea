@@ -347,31 +347,6 @@ void render(FILE *out, Editor *e, Viewport *v, char last)
             fprintf(out, "\033[33m%3zu \033[0m", line_number);
         }
     }
-    /* for (; i < e->lines.count && i < e->height; ++i) { */
-    /*     // Line numbers */
-    /*     if (i == e->cy) { */
-    /*         fprintf(out, "\033[1m"); */
-    /*     } */
-    /*     fprintf(out, "\033[33m%3zu \033[0m", i); */
-    /*     /1* CURSOR_MOVE_TO((size_t) SIDEBAR_SZ, (size_t) i); *1/ */
-
-    /*     fprintf(out, "\033["BG_COLOR"m"); */
-    /*     Line *line = &e->lines.data[i]; */
-    /*     fprintf(out, "%.*s", (int) line->count, line->data); */
-
-    /*     for (size_t j = 0; j < e->width - line->count - SIDEBAR_SZ && j < e->width; ++j) */
-    /*         putchar(' '); */
-    /*     fprintf(out, "\033[0m"); */
-    /* } */
-
-    /* fprintf(out, "\033["PAD_COLOR"m"); */
-    /* for (; i < e->height - STATUS_SZ; ++i) { */
-    /*     fprintf(out, "\033[33;49m  ~ "); */
-    /*     fprintf(out, "\033["PAD_COLOR"m"); */
-    /*     for (size_t j = SIDEBAR_SZ; j < e->width; ++j) */
-    /*         putchar(' '); */
-    /* }; */
-    /* fprintf(out, "\033[0m"); */
 
     // status bar
     char *mode_str = mode_to_str(e->mode);
@@ -432,6 +407,7 @@ void editor_read_from_file(Editor *e, const char* filename)
     fclose(file);
 }
 
+#ifndef UNIT_TEST
 int main(int argc, char **argv)
 {
     if (argc != 2) {
@@ -573,3 +549,4 @@ int main(int argc, char **argv)
 
     return 0;
 }
+#endif
