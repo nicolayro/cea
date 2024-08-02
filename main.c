@@ -25,7 +25,7 @@ struct termios org_term;
 #define CURSOR_RESET()      printf("\033[H")
 #define CURSOR_MOVE_TO(x,y) printf("\033[%zu;%zuH", (y)+1, (x)+1)
 
-// ASCII COdes
+// ASCII Codes
 #define ENTER 10
 #define ESCAPE 27
 #define BSPACE 127
