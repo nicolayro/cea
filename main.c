@@ -12,14 +12,13 @@ struct termios org_term;
 #define INIT_CAP 8
 
 #define SIDEBAR_SZ 5
-#define STATUS_SZ 1
+#define STATUS_SZ 2
 
-#define FG_COLOR       "97"
-#define BG_COLOR       "48;5;236"
+#define FG_COLOR       "38;5;15"
+#define BG_COLOR       "48;5;235"
 #define HL_COLOR       "1;33"
 #define LINE_NUM_COLOR "38;5;245"
-#define PAD_COLOR      "48;5;250"
-#define STATUS_COLOR   "42"
+#define PAD_COLOR      "48;5;232"
 
 // man(4) console_codes
 #define CLEAR()             printf("\033[2J")
@@ -111,17 +110,15 @@ void viewport_insert(Viewport *v, char c) {
 void viewport_write(Viewport *v, Lines *lines)
 {
     v->count = 0;
-    for (size_t i = v->top; i < v->top + v->height; ++i) {
-        if (i < lines->count) {
-            Line *l = &lines->data[i];
-            for (size_t j = v->left; j < v->width && j < l->count; ++j) {
-                viewport_insert(v, l->data[j]);
-            }
-            viewport_insert(v, '\033');
-            viewport_insert(v, '[');
-            viewport_insert(v, 'K');
-            viewport_insert(v, '\n');
+    for (size_t i = v->top; i < v->top + v->height && i < lines->count; ++i) {
+        Line *line = &lines->data[i];
+        for (size_t j = v->left; j < v->left + v->width && j < line->count; ++j) {
+            viewport_insert(v, line->data[j]);
         }
+        viewport_insert(v, '\033');
+        viewport_insert(v, '[');
+        viewport_insert(v, 'K');
+        viewport_insert(v, '\n');
     }
 }
 
@@ -130,7 +127,7 @@ void viewport_update(Viewport *v, Editor *e)
     v->width = e->width - SIDEBAR_SZ;
     v->height = e->height - STATUS_SZ;
 
-    if (e->cx < v->left) {
+    if (e->cx <= v->left) {
         v->left = e->cx;
     }
     if (e->cx >= v->left + v->width - 1) {
@@ -146,7 +143,7 @@ void viewport_update(Viewport *v, Editor *e)
     viewport_write(v, &e->lines);
 }
 
-void viewport_free(Viewport *v) 
+void viewport_free(Viewport *v)
 {
     if (v->content) {
         free(v->content);
@@ -156,7 +153,7 @@ void viewport_free(Viewport *v)
     }
 }
 
-void line_init(Line *line) 
+void line_init(Line *line)
 {
     line->count = 0;
     line->capacity = 0;
@@ -335,7 +332,7 @@ void lines_free(Lines *lines)
 {
     if (lines && lines->data) {
         for (size_t i = 0; i < lines->count; ++i) {
-            /* line_free(&lines->data[i]); */
+            line_free(&lines->data[i]);
         }
         free(lines->data);
         lines->count = 0;
@@ -421,14 +418,14 @@ void editor_remove_char(Editor *e)
     }
 }
 
-void editor_free(Editor *e) 
+void editor_free(Editor *e)
 {
     lines_free(&e->lines);
 }
 
 void render(FILE *out, Editor *e, Viewport *v, char last)
 {
-    size_t 
+    size_t
         i = 0,
         line_number = 0,
         line_len = 0;
@@ -436,11 +433,11 @@ void render(FILE *out, Editor *e, Viewport *v, char last)
     fprintf(out, "\033["BG_COLOR"m");
     for (i = 0; i < v->count; ++i) {
         if (v->content[i] == '\n') {
-            fprintf(out, "\033[%zu;%dH\033[%sm%4zu \033[22;"FG_COLOR"m", 
-                    line_number + 1, 
-                    1, 
+            fprintf(out, "\033[%zu;%dH\033[%sm%4zu \033[22;"FG_COLOR"m",
+                    line_number + 1,
+                    1,
                     e->cy == line_number + v->top ? HL_COLOR : LINE_NUM_COLOR,
-                    line_number);
+                    line_number + v->top + 1);
             fwrite(v->content + i - line_len, sizeof(char), line_len, out);
             line_len = 0;
             line_number++;
@@ -449,9 +446,119 @@ void render(FILE *out, Editor *e, Viewport *v, char last)
         }
     }
 
+    CURSOR_MOVE_TO((size_t) 0, v->top + v->height);
+    fprintf(out, "\033[1;30;42m | %s | (%zu, %zu) | [%zu, %zu] | {%zu, %zu} | %d |\033[K\033[22m", 
+            mode_to_str(e->mode), e->cx, e->cy, e->width, e->height, v->left, v->top, last);
+    CURSOR_MOVE_TO((size_t) 0, v->top + v->height + 1);
+    fprintf(out, "\033["BG_COLOR"m\033[K");
 
-    CURSOR_MOVE_TO(e->cx + SIDEBAR_SZ, e->cy - v->top);
+    CURSOR_MOVE_TO(e->cx + SIDEBAR_SZ - v->left, e->cy - v->top);
     fflush(out);
+}
+
+void run(Editor *e, Viewport *v)
+{
+    int c;
+    while (read(STDIN_FILENO, &c, 1) == 1 && c != 'q') {
+        if (e->mode == NORMAL) {
+            switch (c) {
+                case 'h':
+                    if (e->cx > 0)
+                        e->cx--;
+                    break;
+                case 'j':
+                    if (e->cy < e->lines.count - 1)
+                        e->cy++;
+                    break;
+                case 'k':
+                    if (e->cy > 0)
+                        e->cy--;
+                    break;
+                case 'l':
+                    if (e->cx < e->lines.data[e->cy].count - 1) {
+                        e->cx++;
+                    }
+                    break;
+                case 'i':
+                    if (e->cy < e->lines.count && e->cx <= e->lines.data[e->cy].count)
+                        e->mode = INSERT;
+                    break;
+                case 'a':
+                    if (e->cy < e->lines.count && e->cx < e->lines.data[e->cy].count) {
+                        e->mode = INSERT;
+                        e->cx++;
+                    }
+                    break;
+                case 'A':
+                    if (e->cy < e->lines.count) {
+                        Line *line = &e->lines.data[e->cy];
+                        if (e->cx < line->count) {
+                            e->mode = INSERT;
+                            e->cx = line->count;
+                        }
+                    }
+                    break;
+                case 'o':
+                    if (e->cy < e->lines.count) {
+                        Line line = {0};
+
+                        lines_insert(&e->lines, e->cy, &line);
+                        e->cx = 0;
+                        e->cy++;
+                        e->mode = INSERT;
+                    }
+                    break;
+                case 'x':
+                    if (e->cy < e->lines.count) {
+                        Line *line = &e->lines.data[e->cy];
+                        if (e->cx < line->count) {
+                            line_remove(line, e->cx);
+                        }
+                    }
+                default:
+                    break;
+            }
+        } else if (e->mode == INSERT) {
+            switch (c) {
+                case ESCAPE:
+                    e->mode = NORMAL;
+                    if (e->cx > 0) {
+                        e->cx--;
+                    }
+                    break;
+                case ENTER:
+                    if (e->cy < e->lines.count) {
+                        Line *line = &e->lines.data[e->cy];
+                        if (e->cx >= 0 && e->cy <= e->lines.count) {
+                            Line new_line = line->count != 0
+                                ? line_split_at(line, e->cx)
+                                : (Line) {0};
+                            lines_insert(&e->lines, e->cy, &new_line);
+                            e->cy++;
+                            e->cx = 0;
+                        }
+                    }
+                    break;
+                case BSPACE:
+                    editor_remove_char(e);
+                    break;
+                default:
+                    if (c >= 32 && c <= 127) {
+                        if (e->cy < e->lines.count) {
+                            Line *line = &e->lines.data[e->cy];
+                            if (e->cx <= line->count) {
+                                line_insert(line, e->cx, c);
+                                e->cx++;
+                            }
+                        }
+                    }
+                    break;
+            }
+        }
+
+        viewport_update(v, e);
+        render(stdout, e, v, c);
+    }
 }
 
 #ifndef UNIT_TEST
@@ -467,116 +574,18 @@ int main(int argc, char **argv)
 
     Editor e = {0};
     Viewport v = {0};
+
     editor_read_from_file(&e, filename);
     editor_compute_size(&e);
+
     viewport_update(&v, &e);
     viewport_write(&v, &e.lines);
 
     CLEAR();
-
     terminal_enable_raw_mode();
+
     render(stdout, &e, &v, ' ');
-
-    int c;
-    while (read(STDIN_FILENO, &c, 1) == 1 && c != 'q') {
-        if (e.mode == NORMAL) {
-            switch (c) {
-                case 'h':
-                    if (e.cx > 0)
-                        e.cx--;
-                    break;
-                case 'j':
-                    if (e.cy < e.lines.count)
-                        e.cy++;
-                    break;
-                case 'k':
-                    if (e.cy > 0)
-                        e.cy--;
-                    break;
-                case 'l':
-                    if (e.cx < e.lines.data[e.cy].count - 1)
-                        e.cx++;
-                    break;
-                case 'i':
-                    if (e.cy < e.lines.count && e.cx <= e.lines.data[e.cy].count)
-                        e.mode = INSERT;
-                    break;
-                case 'a':
-                    if (e.cy < e.lines.count && e.cx < e.lines.data[e.cy].count) {
-                        e.mode = INSERT;
-                        e.cx++;
-                    }
-                    break;
-                case 'A':
-                    if (e.cy < e.lines.count) {
-                        Line *line = &e.lines.data[e.cy];
-                        if (e.cx < line->count) {
-                            e.mode = INSERT;
-                            e.cx = line->count;
-                        }
-                    }
-                    break;
-                case 'o':
-                    if (e.cy < e.lines.count) {
-                        Line line = {0};
-
-                        lines_insert(&e.lines, e.cy, &line);
-                        e.cx = 0;
-                        e.cy++;
-                        e.mode = INSERT;
-                    }
-                    break;
-                case 'x':
-                    if (e.cy < e.lines.count) {
-                        Line *line = &e.lines.data[e.cy];
-                        if (e.cx < line->count) {
-                            line_remove(line, e.cx);
-                        }
-                    }
-                default:
-                    break;
-            }
-        } else if (e.mode == INSERT) {
-            switch (c) {
-                case ESCAPE:
-                    e.mode = NORMAL;
-                    if (e.cx > 0) {
-                        e.cx--;
-                    }
-                    break;
-                case ENTER:
-                    if (e.cy < e.lines.count) {
-                        Line *line = &e.lines.data[e.cy];
-                        if (e.cx >= 0 && e.cy <= e.lines.count) {
-                            Line new_line = line->count != 0
-                                ? line_split_at(line, e.cx)
-                                : (Line) {0};
-                            lines_insert(&e.lines, e.cy, &new_line);
-                            e.cy++;
-                            e.cx = 0;
-                        }
-                    }
-                    break;
-                case BSPACE:
-                    editor_remove_char(&e);
-                    break;
-                default:
-                    if (c >= 32 && c <= 127) {
-                        if (e.cy < e.lines.count) {
-                            Line *line = &e.lines.data[e.cy];
-                            if (e.cx <= line->count) {
-                                line_insert(line, e.cx, c);
-                                e.cx++;
-                            }
-                        }
-                    }
-                    break;
-            }
-        }
-
-        viewport_update(&v, &e);
-        render(stdout, &e, &v, c);
-    }
+    run(&e, &v);
 
     terminal_disable_raw_mode();
 

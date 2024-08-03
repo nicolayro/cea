@@ -7,7 +7,10 @@ build: $(FILES)
 	$(CC) $(FLAGS) -o $(PROGRAM) $(FILES)
 
 run: build
-	./$(PROGRAM) main.c
+	./$(PROGRAM) $(ARGS)
+
+debug: build
+	./$(PROGRAM) $(ARGS) 2>> log
 
 test: build
 	$(CC) $(FLAGS) -o test test.c && ./test
