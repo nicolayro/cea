@@ -11,11 +11,12 @@ struct termios org_term;
 
 #define INIT_CAP 8
 
-#define SIDEBAR_SZ 4
+#define SIDEBAR_SZ 5
 #define STATUS_SZ 1
 
-#define FG_COLOR       "38;5;13"
-#define BG_COLOR       "48;5;235"
+#define FG_COLOR       "97"
+#define BG_COLOR       "48;5;236"
+#define HL_COLOR       "1;33"
 #define LINE_NUM_COLOR "38;5;245"
 #define PAD_COLOR      "48;5;250"
 #define STATUS_COLOR   "42"
@@ -113,10 +114,12 @@ void viewport_write(Viewport *v, Lines *lines)
     for (size_t i = v->top; i < v->top + v->height; ++i) {
         if (i < lines->count) {
             Line *l = &lines->data[i];
-            for (size_t j = v->left; j < v->width; ++j) {
-                char c = j < l->count ? l->data[j] : ' ';
-                viewport_insert(v, c);
+            for (size_t j = v->left; j < v->width && j < l->count; ++j) {
+                viewport_insert(v, l->data[j]);
             }
+            viewport_insert(v, '\033');
+            viewport_insert(v, '[');
+            viewport_insert(v, 'K');
             viewport_insert(v, '\n');
         }
     }
@@ -353,47 +356,6 @@ void editor_compute_size(Editor *e)
     e->height = w.ws_row;
 }
 
-void editor_free(Editor *e) 
-{
-    lines_free(&e->lines);
-}
-
-void render(FILE *out, Editor *e, Viewport *v, char last)
-{
-    CURSOR_RESET();
-
-    size_t i = 0;
-    size_t line_number = v->top + 1;
-    fprintf(out, "\033["LINE_NUM_COLOR";"BG_COLOR"m%3zu \033[0m", line_number);
-    for (i = 0; i < v->count; ++i) {
-        fprintf(out, "\033["BG_COLOR"m");
-        char c = v->content[i];
-        fputc(c, out);
-        if (c == '\n') {
-            line_number++;
-            if (e->cy == line_number - 1) {
-                // Highlight current line
-                fprintf(out, "\033[33m%3zu \033[0m", line_number);
-            } else {
-                fprintf(out, "\033["LINE_NUM_COLOR"m%3zu \033[0m", line_number);
-            }
-        }
-    }
-
-    // status bar
-    char *mode_str = mode_to_str(e->mode);
-    CURSOR_MOVE_TO((size_t) 0, (size_t) e->height);
-    fprintf(out, "\033[30;"STATUS_COLOR"m");
-    for (size_t i = 0; i < e->width; ++i)
-        putchar(' ');
-    CURSOR_MOVE_TO((size_t) 0, (size_t) e->height);
-    fprintf(out, " | %s | %zu, %zu | %zu, %zu | (%d) | ", mode_str, e->cx, e->cy, e->width, e->height, last);
-    fprintf(out, "\033[0m");
-
-    CURSOR_MOVE_TO(e->cx + SIDEBAR_SZ, e->cy - v->top);
-    fflush(out);
-}
-
 void editor_read_from_file(Editor *e, const char* filename)
 {
     struct stat statbuf;
@@ -459,6 +421,39 @@ void editor_remove_char(Editor *e)
     }
 }
 
+void editor_free(Editor *e) 
+{
+    lines_free(&e->lines);
+}
+
+void render(FILE *out, Editor *e, Viewport *v, char last)
+{
+    size_t 
+        i = 0,
+        line_number = 0,
+        line_len = 0;
+
+    fprintf(out, "\033["BG_COLOR"m");
+    for (i = 0; i < v->count; ++i) {
+        if (v->content[i] == '\n') {
+            fprintf(out, "\033[%zu;%dH\033[%sm%4zu \033[22;"FG_COLOR"m", 
+                    line_number + 1, 
+                    1, 
+                    e->cy == line_number + v->top ? HL_COLOR : LINE_NUM_COLOR,
+                    line_number);
+            fwrite(v->content + i - line_len, sizeof(char), line_len, out);
+            line_len = 0;
+            line_number++;
+        } else {
+            line_len++;
+        }
+    }
+
+
+    CURSOR_MOVE_TO(e->cx + SIDEBAR_SZ, e->cy - v->top);
+    fflush(out);
+}
+
 #ifndef UNIT_TEST
 int main(int argc, char **argv)
 {
@@ -475,6 +470,7 @@ int main(int argc, char **argv)
     editor_read_from_file(&e, filename);
     editor_compute_size(&e);
     viewport_update(&v, &e);
+    viewport_write(&v, &e.lines);
 
     CLEAR();
 
