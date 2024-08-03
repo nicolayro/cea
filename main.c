@@ -14,9 +14,11 @@ struct termios org_term;
 #define SIDEBAR_SZ 4
 #define STATUS_SZ 1
 
-#define BG_COLOR     "49;5;245"
-#define PAD_COLOR    "90;5;235"
-#define STATUS_COLOR "42"
+#define FG_COLOR       "38;5;13"
+#define BG_COLOR       "48;5;235"
+#define LINE_NUM_COLOR "38;5;245"
+#define PAD_COLOR      "48;5;250"
+#define STATUS_COLOR   "42"
 
 // man(4) console_codes
 #define CLEAR()             printf("\033[2J")
@@ -80,7 +82,7 @@ typedef struct {
 typedef struct {
     size_t top, left;
     size_t height, width;
-    size_t count; 
+    size_t count;
     size_t capacity;
     char *content;
 } Viewport;
@@ -141,7 +143,18 @@ void viewport_update(Viewport *v, Editor *e)
     viewport_write(v, &e->lines);
 }
 
-void line_init(Line *line) {
+void viewport_free(Viewport *v) 
+{
+    if (v->content) {
+        free(v->content);
+        v->count = 0;
+        v->capacity = 0;
+        v->content = NULL;
+    }
+}
+
+void line_init(Line *line) 
+{
     line->count = 0;
     line->capacity = 0;
     line->data = NULL;
@@ -223,7 +236,12 @@ Line line_split_at(Line *line, size_t pos)
 
 void line_free(Line *line)
 {
-    free(line->data);
+    if (line->data) {
+        free(line->data);
+        line->count = 0;
+        line->capacity = 0;
+        line->data = NULL;
+    }
 }
 
 void lines_init(Lines *lines)
@@ -280,8 +298,8 @@ void lines_remove(Lines *lines, size_t pos)
     }
 
     Line *line = &lines->data[pos];
-    memmove(line, line + 1, lines->count - pos - 1);
     line_free(line);
+    memmove(line, line + 1, sizeof(Line) * (lines->count - pos));
     lines->count--;
 }
 
@@ -291,6 +309,7 @@ void lines_combine(Lines *lines, size_t pos_a, size_t pos_b)
         fprintf(stderr, "ERROR: Combine ('%zu', '%zu') out of bounds", pos_a, pos_b);
         exit(1);
     }
+
     Line *a = &lines->data[pos_a];
     Line *b = &lines->data[pos_b];
 
@@ -311,10 +330,15 @@ void lines_combine(Lines *lines, size_t pos_a, size_t pos_b)
 
 void lines_free(Lines *lines)
 {
-    for (size_t i = 0; i < lines->count; ++i) {
-        free(lines->data[i].data);
+    if (lines && lines->data) {
+        for (size_t i = 0; i < lines->count; ++i) {
+            /* line_free(&lines->data[i]); */
+        }
+        free(lines->data);
+        lines->count = 0;
+        lines->capacity = 0;
+        lines->data = NULL;
     }
-    free(lines->data);
 }
 
 void editor_compute_size(Editor *e)
@@ -329,22 +353,30 @@ void editor_compute_size(Editor *e)
     e->height = w.ws_row;
 }
 
+void editor_free(Editor *e) 
+{
+    lines_free(&e->lines);
+}
+
 void render(FILE *out, Editor *e, Viewport *v, char last)
 {
     CURSOR_RESET();
 
     size_t i = 0;
-    size_t line_number = v->top;
-    fprintf(out, "\033[33m%3zu \033[0m", line_number);
+    size_t line_number = v->top + 1;
+    fprintf(out, "\033["LINE_NUM_COLOR";"BG_COLOR"m%3zu \033[0m", line_number);
     for (i = 0; i < v->count; ++i) {
         fprintf(out, "\033["BG_COLOR"m");
         char c = v->content[i];
         fputc(c, out);
         if (c == '\n') {
             line_number++;
-            if (e->cy == line_number)
-                fprintf(out, "\033[1m"); // Bold current line
-            fprintf(out, "\033[33m%3zu \033[0m", line_number);
+            if (e->cy == line_number - 1) {
+                // Highlight current line
+                fprintf(out, "\033[33m%3zu \033[0m", line_number);
+            } else {
+                fprintf(out, "\033["LINE_NUM_COLOR"m%3zu \033[0m", line_number);
+            }
         }
     }
 
@@ -405,6 +437,26 @@ void editor_read_from_file(Editor *e, const char* filename)
 
     free(contents);
     fclose(file);
+}
+
+void editor_remove_char(Editor *e)
+{
+    if (e->cy < e->lines.count) {
+        if (e->cx == 0) {
+            if (e->cy < 1)
+                return;
+            size_t line_end = e->lines.data[e->cy-1].count;
+            lines_combine(&e->lines, e->cy-1, e->cy);
+            e->cy--;
+            e->cx = line_end;
+        } else {
+            Line *line = &e->lines.data[e->cy];
+            if (e->cx <= line->count) {
+                e->cx--;
+                line_remove(line, e->cx);
+            }
+        }
+    }
 }
 
 #ifndef UNIT_TEST
@@ -510,22 +562,7 @@ int main(int argc, char **argv)
                     }
                     break;
                 case BSPACE:
-                    if (e.cy < e.lines.count) {
-                        if (e.cx == 0) {
-                            if (e.cy < 1)
-                                continue;
-                            size_t line_end = e.lines.data[e.cy-1].count;
-                            lines_combine(&e.lines, e.cy-1, e.cy);
-                            e.cy--;
-                            e.cx = line_end;
-                        } else {
-                            Line *line = &e.lines.data[e.cy];
-                            if (e.cx <= line->count) {
-                                e.cx--;
-                                line_remove(line, e.cx);
-                            }
-                        }
-                    }
+                    editor_remove_char(&e);
                     break;
                 default:
                     if (c >= 32 && c <= 127) {
@@ -546,6 +583,9 @@ int main(int argc, char **argv)
     }
 
     terminal_disable_raw_mode();
+
+    editor_free(&e);
+    viewport_free(&v);
 
     return 0;
 }
