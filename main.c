@@ -18,7 +18,7 @@ struct termios org_term;
 #define BG_COLOR       "48;5;235"
 #define HL_COLOR       "1;33"
 #define LINE_NUM_COLOR "38;5;245"
-#define PAD_COLOR      "48;5;232"
+#define PAD_COLOR      "48;5;234"
 
 // man(4) console_codes
 #define CLEAR()             printf("\033[2J")
@@ -92,6 +92,7 @@ typedef struct {
     size_t width, height;
     Mode mode;
     Lines lines;
+    const char *filename;
 } Editor;
 
 void viewport_insert(Viewport *v, char c) {
@@ -393,8 +394,25 @@ void editor_read_from_file(Editor *e, const char* filename)
             line_append(&l, c);
         }
     }
+    e->filename = filename;
 
     free(contents);
+    fclose(file);
+}
+
+void editor_save_to_file(Editor *e, const char *filename) 
+{
+    FILE *file = fopen(filename, "w");
+    if (!file) {
+        fprintf(stderr, "ERROR: Unable to open file '%s' for saving.\n", filename);
+        exit(1);
+    }
+
+    for (size_t i = 0; i < e->lines.count; ++i) {
+        Line *line = &e->lines.data[i];
+        fprintf(file, "%.*s\n", (int) line->count, line->data);
+    }
+
     fclose(file);
 }
 
@@ -444,6 +462,10 @@ void render(FILE *out, Editor *e, Viewport *v, char last)
         } else {
             line_len++;
         }
+    }
+
+    for (;line_number < v->top + v->height; line_number++) {
+        fprintf(out, "\033[%zu;%dH\033["LINE_NUM_COLOR";"PAD_COLOR"m~\033[K", line_number + 1, 1);
     }
 
     CURSOR_MOVE_TO((size_t) 0, v->top + v->height);
@@ -508,6 +530,15 @@ void run(Editor *e, Viewport *v)
                         e->mode = INSERT;
                     }
                     break;
+                case 's':
+                    CURSOR_MOVE_TO((size_t) 0, v->top + v->height + 1);
+                    fprintf(stdout, "\033["LINE_NUM_COLOR"mSave buffer to '%s'? \033[0m", e->filename);
+                    int yn = getchar();
+                    if (yn == 'y') {
+                        editor_save_to_file(e, e->filename);
+                    }
+                    fprintf(stdout, "\033["LINE_NUM_COLOR"mSave buffer to '%s'? \033[0m", e->filename);
+                    break;
                 case 'x':
                     if (e->cy < e->lines.count) {
                         Line *line = &e->lines.data[e->cy];
@@ -515,6 +546,7 @@ void run(Editor *e, Viewport *v)
                             line_remove(line, e->cx);
                         }
                     }
+                    break;
                 default:
                     break;
             }
