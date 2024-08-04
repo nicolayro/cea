@@ -11,9 +11,14 @@ struct termios org_term;
 
 #define INIT_CAP 8
 
+// UI
 #define SIDEBAR_SZ 5
 #define STATUS_SZ 2
 
+// Settings
+#define TAB_SIZE 4
+
+// Colors
 #define FG_COLOR       "38;5;15"
 #define BG_COLOR       "48;5;235"
 #define HL_COLOR       "1;33"
@@ -26,7 +31,8 @@ struct termios org_term;
 #define CURSOR_MOVE_TO(x,y) printf("\033[%zu;%zuH", (y)+1, (x)+1)
 
 // ASCII Codes
-#define ENTER 10
+#define TAB    9
+#define ENTER  10
 #define ESCAPE 27
 #define BSPACE 127
 
@@ -532,7 +538,7 @@ void run(Editor *e, Viewport *v)
                     break;
                 case 's':
                     CURSOR_MOVE_TO((size_t) 0, v->top + v->height + 1);
-                    fprintf(stdout, "\033["LINE_NUM_COLOR"mSave buffer to '%s'? \033[0m", e->filename);
+                    fprintf(stdout, "\033["HL_COLOR"mSave buffer to '%s'? \033[0m", e->filename);
                     int yn = getchar();
                     if (yn == 'y') {
                         editor_save_to_file(e, e->filename);
@@ -574,6 +580,15 @@ void run(Editor *e, Viewport *v)
                 case BSPACE:
                     editor_remove_char(e);
                     break;
+                case TAB:
+                    if (e->cy < e->lines.count) {
+                        Line *line = &e->lines.data[e->cy];
+                        size_t tab_size = TAB_SIZE - e->cx % TAB_SIZE;
+                        for (size_t i = 0; i < tab_size; ++i) {
+                            line_insert(line, e->cx, ' ');
+                            e->cx++;
+                        }
+                    }
                 default:
                     if (c >= 32 && c <= 127) {
                         if (e->cy < e->lines.count) {
