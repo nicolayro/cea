@@ -134,7 +134,7 @@ void test_editor_remove_char(void)
     assert(e.lines.data[6].data[3] == ('a' + 4) && "incorrect amount of chars");
 }
 
-void remove_editor_remove_line_start(void)
+void test_remove_editor_remove_line_start(void)
 {
     Lines lines = {0};
     lines_init(&lines);
@@ -156,6 +156,42 @@ void remove_editor_remove_line_start(void)
     assert(e.cx == 10 && "incorrect mouse placement");
 }
 
+void test_match_keyword_matches(void) 
+{
+    int matches = match_keyword("for", "for", 3);
+    assert(matches == 3 && "Words don't match");
+}
+
+void test_match_keyword_no_matches(void) 
+{
+    int matches = match_keyword("for", "while", 5);
+    assert(matches == 0 && "Words shouldn't match");
+}
+
+void test_match_keyword_almost_matches(void) 
+{
+    int matches = match_keyword("return", "returners", 9);
+    assert(matches == 0 && "Words shouldn't match");
+}
+
+void test_highlight(void) 
+{
+    Line line = {0};
+    line_append(&line, 'a');
+    line_append(&line, 'b');
+    line_append(&line, 'c');
+    line_append(&line, ' ');
+    line_append(&line, 'f');
+    line_append(&line, 'o');
+    line_append(&line, 'r');
+    line_append(&line, ' ');
+    line_append(&line, 'f');
+    line_append(&line, 'o');
+
+    int num_to_hl = highlight(&line, 4);
+    assert(num_to_hl == 3 && "Should highlight 3 chars");
+}
+
 int main(void) 
 {
     printf("Running tests\n");
@@ -170,7 +206,12 @@ int main(void)
     printf("  Editor\n");
     test(test_editor_remove_char, "remove char");
     test(test_editor_remove_char, "remove char");
-    test(remove_editor_remove_line_start, "remove char at beginning of line");
+    test(test_remove_editor_remove_line_start, "remove char at beginning of line");
+    printf("  Highlight\n");
+    test(test_match_keyword_matches, "keyword matches");
+    test(test_match_keyword_no_matches, "keyword doesn't match");
+    test(test_match_keyword_almost_matches, "keyword almost matches");
+    test(test_highlight, "highlight");
     printf("Completed %zu tests\n", num_tests);
 
     return 0;

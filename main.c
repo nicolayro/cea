@@ -103,6 +103,16 @@ typedef struct {
     const char *filename;
 } Editor;
 
+char *keywords[] = {
+    "if",
+    "else",
+    "for",
+    "while",
+    "return",
+    "#include",
+    "sizeof"
+};
+
 void viewport_insert(Viewport *v, char c) {
     if (v->capacity < v->count + 1) {
         v->capacity = v->capacity == 0 ? INIT_CAP : v->capacity * 2;
@@ -116,18 +126,70 @@ void viewport_insert(Viewport *v, char c) {
     v->content[v->count++] = c;
 }
 
+void viewport_insert_cstr(Viewport *v, const char *str) {
+    for (size_t i = 0; i < strlen(str); ++i) {
+        viewport_insert(v, str[i]);
+    }
+}
+
+void viewport_insert_str(Viewport *v, char *str, size_t len) {
+    for (size_t i = 0; i < len; ++i) {
+        viewport_insert(v, str[i]);
+    }
+}
+
+int is_whitespace(char c) {
+    return c == ' ' || c == '\n' || c == '\t';
+}
+
+int match_keyword(const char *keyword, char *str, size_t n) 
+{
+    if (n != strlen(keyword))
+        return 0;
+
+    if (memcmp(keyword, str, n) != 0)
+        return 0;
+
+    return n;
+}
+
+int check_keywords(char *str, size_t n) 
+{
+    for (size_t i = 0; i < sizeof(keywords) / sizeof(char*); ++i) {
+        int match = match_keyword(keywords[i], str, n);
+        if (match > 0)
+            return match;
+    }
+
+    return 0;
+}
+
+int highlight(Line *line, size_t pos)
+{
+    size_t i = pos;
+    size_t word_len = 0;
+
+    while (i < line->count && !is_whitespace(line->data[i++])) word_len++;
+
+    return check_keywords(&line->data[pos], word_len);
+}
+
 void viewport_write(Viewport *v, Lines *lines)
 {
     v->count = 0;
     for (size_t i = v->top; i < v->top + v->height && i < lines->count; ++i) {
         Line *line = &lines->data[i];
         for (size_t j = v->left; j < v->left + v->width && j < line->count; ++j) {
+            int num_to_highlight = highlight(line, j);
+            if (num_to_highlight > 0) {
+                viewport_insert_cstr(v, "\033[33m");
+                viewport_insert_str(v, &line->data[j], num_to_highlight);
+                viewport_insert_cstr(v, "\033["FG_COLOR"m");
+                j += num_to_highlight;
+            }
             viewport_insert(v, line->data[j]);
         }
-        viewport_insert(v, '\033');
-        viewport_insert(v, '[');
-        viewport_insert(v, 'K');
-        viewport_insert(v, '\n');
+        viewport_insert_cstr(v, "\033[K\n");
     }
 }
 
@@ -541,7 +603,6 @@ void run(Editor *e, Viewport *v)
                 case 'o':
                     if (e->cy < e->lines.count) {
                         Line line = {0};
-
                         lines_insert(&e->lines, e->cy, &line);
                         e->cx = 0;
                         e->cy++;
@@ -550,12 +611,11 @@ void run(Editor *e, Viewport *v)
                     break;
                 case 's':
                     CURSOR_MOVE_TO((size_t) 0, v->top + v->height + 1);
-                    fprintf(stdout, "\033["HL_COLOR"mSave buffer to '%s'? \033[0m", e->filename);
+                    fprintf(stdout, "\033["HL_COLOR"mSave buffer to: %s\033[0m", e->filename);
                     int yn = getchar();
                     if (yn == 'y') {
                         editor_save_to_file(e, e->filename);
                     }
-                    fprintf(stdout, "\033["LINE_NUM_COLOR"mSave buffer to '%s'? \033[0m", e->filename);
                     break;
                 case 'x':
                     if (e->cy < e->lines.count) {
@@ -615,7 +675,6 @@ void run(Editor *e, Viewport *v)
                     break;
             }
         }
-
 
         viewport_update(v, e);
         render(stdout, e, v, c);
