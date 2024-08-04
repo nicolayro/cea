@@ -36,6 +36,8 @@ struct termios org_term;
 #define ESCAPE 27
 #define BSPACE 127
 
+#define MIN(a, b) (((a) < (b)) ? (a) : (b))
+
 void terminal_disable_raw_mode(void)
 {
     if ((tcsetattr(STDIN_FILENO, TCSAFLUSH, &org_term)) == -1) {
@@ -94,7 +96,7 @@ typedef struct {
 } Viewport;
 
 typedef struct {
-    size_t cx, cy;
+    size_t cx, cy, cx_mem;
     size_t width, height;
     Mode mode;
     Lines lines;
@@ -486,25 +488,35 @@ void render(FILE *out, Editor *e, Viewport *v, char last)
 
 void run(Editor *e, Viewport *v)
 {
+
     int c;
     while (read(STDIN_FILENO, &c, 1) == 1 && c != 'q') {
         if (e->mode == NORMAL) {
             switch (c) {
                 case 'h':
-                    if (e->cx > 0)
+                    if (e->cx > 0) {
                         e->cx--;
+                        e->cx_mem = e->cx;
+                    }
                     break;
                 case 'j':
-                    if (e->cy < e->lines.count - 1)
+                    if (e->cy < e->lines.count - 1) {
                         e->cy++;
+                        size_t line_len = e->lines.data[e->cy].count;
+                        e->cx = MIN(line_len > 0 ? line_len - 1 : 0, e->cx_mem);
+                    }
                     break;
                 case 'k':
-                    if (e->cy > 0)
+                    if (e->cy > 0) {
                         e->cy--;
+                        size_t line_len = e->lines.data[e->cy].count;
+                        e->cx = MIN(line_len > 0 ? line_len - 1 : 0, e->cx_mem);
+                    }
                     break;
                 case 'l':
                     if (e->cx < e->lines.data[e->cy].count - 1) {
                         e->cx++;
+                        e->cx_mem = e->cx;
                     }
                     break;
                 case 'i':
@@ -589,6 +601,7 @@ void run(Editor *e, Viewport *v)
                             e->cx++;
                         }
                     }
+                    break;
                 default:
                     if (c >= 32 && c <= 127) {
                         if (e->cy < e->lines.count) {
@@ -602,6 +615,7 @@ void run(Editor *e, Viewport *v)
                     break;
             }
         }
+
 
         viewport_update(v, e);
         render(stdout, e, v, c);
